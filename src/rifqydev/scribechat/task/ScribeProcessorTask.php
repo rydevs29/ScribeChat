@@ -27,10 +27,35 @@ class ScribeProcessorTask extends AsyncTask {
     }
 
     public function onRun(): void {
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=" . $this->apiKey;
+        $config = unserialize($this->configSerialized);
+        $models = $config['api-settings']['dynamic-models'];
 
-        // Prompt super komprehensif (Sentiment + Grammar)
-        $prompt = "You are a chat processor for a Minecraft server. Rule 1: If the message is severe hate speech or highly toxic, reply exactly with 'TOXIC'. Rule 2: If it's clean, fix any extreme typos or messy slang into natural, readable Indonesian (or English if originally English). Do NOT change the meaning. Reply ONLY with the fixed text. Message: \"" . $this->message . "\"";
+        // --- DYNAMIC AI ROUTING LOGIC ---
+        $messageLength = strlen($this->message);
+        $wordCount = str_word_count($this->message);
+        $isQuestion = str_contains($this->message, '?');
+
+        $selectedModel = $models['flash-v1']; // Default model
+
+        if ($isQuestion || $messageLength >= 70) {
+            // Kompleks: Butuh reasoning tinggi untuk sentimen & perbaikan tata bahasa
+            $selectedModel = $models['flash-v2'];
+        } elseif ($messageLength >= 40) {
+            // Menengah: Kalimat standar
+            $selectedModel = $models['flash-v1'];
+        } elseif ($messageLength >= 15) {
+            // Ringan-Sedang: Info singkat
+            $selectedModel = $models['lite-v2'];
+        } else {
+            // Sangat Ringan: "Halo", "Ok", "Gas"
+            $selectedModel = $models['lite-v1'];
+        }
+        // --------------------------------
+
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/" . $selectedModel . ":generateContent?key=" . $this->apiKey;
+
+        // Prompt dibuat se-efisien mungkin
+        $prompt = "You are a Minecraft chat processor. Rule 1: If the message is severe hate speech/toxic, reply ONLY with 'TOXIC'. Rule 2: If clean, fix typos into readable Indonesian (or English). Do not change the meaning. Reply ONLY with the fixed text. Message: \"" . $this->message . "\"";
         
         $payload = json_encode([
             "contents" => [["parts" => [["text" => $prompt]]]]
@@ -56,6 +81,7 @@ class ScribeProcessorTask extends AsyncTask {
             }
         }
 
+        // Simpan hasil untuk dilempar kembali ke thread utama
         $this->setResult($finalMessage);
     }
 
@@ -67,15 +93,13 @@ class ScribeProcessorTask extends AsyncTask {
 
         if ($result === "TOXIC") {
             if ($playerInstance instanceof Player) {
-                $playerInstance->sendMessage("§c[ScribeShield] §7Pesan kamu diblokir karena terindikasi *toxic*.");
+                $playerInstance->sendMessage("§c[ScribeShield] §7Pesan diblokir karena indikasi *toxic*.");
             }
             return;
         }
 
-        // Broadcast menggunakan fungsi dari Loader
         $plugin = $server->getPluginManager()->getPlugin("ScribeChat");
         if ($plugin !== null && $playerInstance instanceof Player) {
-            // Gunakan method broadcastChat di Loader
             $plugin->broadcastChat($playerInstance, $result, $this->isGlobal, $config);
         }
     }
