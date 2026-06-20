@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace rifqydev\scribechat\task;
 
 use pocketmine\scheduler\AsyncTask;
-use pocketmine\getServer;
+use pocketmine\Server;
 use pocketmine\player\Player;
 
 class ScribeProcessorTask extends AsyncTask {
@@ -14,28 +14,26 @@ class ScribeProcessorTask extends AsyncTask {
     private string $message;
     private string $apiKey;
     private string $playerLanguagesSerialized;
+    private bool $isGlobal;
+    private string $configSerialized;
 
-    /**
-     * @param array<string, string> $playerLanguages
-     */
-    public function __construct(string $player, string $message, string $apiKey, array $playerLanguages) {
+    public function __construct(string $player, string $message, string $apiKey, array $playerLanguages, bool $isGlobal, array $config) {
         $this->player = $player;
         $this->message = $message;
         $this->apiKey = $apiKey;
-        // Serialisasi array karena properti AsyncTask harus aman ditransfer antar-thread
         $this->playerLanguagesSerialized = serialize($playerLanguages);
+        $this->isGlobal = $isGlobal;
+        $this->configSerialized = serialize($config);
     }
 
     public function onRun(): void {
         $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=" . $this->apiKey;
 
-        // Meminta Gemini melakukan Sentiment Analysis dan deteksi toxic secara cerdas
-        $prompt = "Analyze the following Minecraft chat message. If it is highly toxic, offensive, or severe hate speech, reply with 'TOXIC'. Otherwise, reply with 'CLEAN'. Message: \"" . $this->message . "\"";
+        // Prompt super komprehensif (Sentiment + Grammar)
+        $prompt = "You are a chat processor for a Minecraft server. Rule 1: If the message is severe hate speech or highly toxic, reply exactly with 'TOXIC'. Rule 2: If it's clean, fix any extreme typos or messy slang into natural, readable Indonesian (or English if originally English). Do NOT change the meaning. Reply ONLY with the fixed text. Message: \"" . $this->message . "\"";
         
         $payload = json_encode([
-            "contents" => [
-                ["parts" => [["text" => $prompt]]]
-            ]
+            "contents" => [["parts" => [["text" => $prompt]]]]
         ]);
 
         $ch = curl_init($url);
@@ -43,39 +41,42 @@ class ScribeProcessorTask extends AsyncTask {
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); // Aman untuk lingkungan internal server game
-        curl_setopt($ch, CURLOPT_TIMEOUT, 3); // Timeout ketat agar thread cepat kembali
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 4); 
 
         $result = curl_exec($ch);
         curl_close($ch);
 
-        $status = "CLEAN";
+        $finalMessage = $this->message; 
         if (is_string($result)) {
             $json = json_decode($result, true);
-            $aiResponse = $json['candidates'][0]['content']['parts'][0]['text'] ?? "CLEAN";
-            if (str_contains(strtoupper($aiResponse), "TOXIC")) {
-                $status = "TOXIC";
+            $aiResponse = trim($json['candidates'][0]['content']['parts'][0]['text'] ?? "");
+            if ($aiResponse !== "") {
+                $finalMessage = $aiResponse;
             }
         }
 
-        $this->setResult($status);
+        $this->setResult($finalMessage);
     }
 
     public function onCompletion(): void {
-        $server = getServer();
-        $status = $this->getResult();
+        $server = Server::getInstance();
+        $result = $this->getResult();
         $playerInstance = $server->getPlayerExact($this->player);
+        $config = unserialize($this->configSerialized);
 
-        if ($status === "TOXIC") {
+        if ($result === "TOXIC") {
             if ($playerInstance instanceof Player) {
-                $playerInstance->sendMessage("§c[ScribeShield] §7Pesan Anda diblokir karena terindikasi mengandung sentimen negatif.");
+                $playerInstance->sendMessage("§c[ScribeShield] §7Pesan kamu diblokir karena terindikasi *toxic*.");
             }
             return;
         }
 
-        // Jika bersih (CLEAN), teruskan pesan secara normal ke chat global server
-        if ($playerInstance instanceof Player) {
-            $server->broadcastMessage("<" . $playerInstance->getDisplayName() . "> " . $this->message);
+        // Broadcast menggunakan fungsi dari Loader
+        $plugin = $server->getPluginManager()->getPlugin("ScribeChat");
+        if ($plugin !== null && $playerInstance instanceof Player) {
+            // Gunakan method broadcastChat di Loader
+            $plugin->broadcastChat($playerInstance, $result, $this->isGlobal, $config);
         }
     }
 }
