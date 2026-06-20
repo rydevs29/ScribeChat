@@ -1,24 +1,27 @@
-# ScribeChat - Konfigurasi Utama
-# Dibuat oleh RifqyDev untuk PocketMine-MP PM5
+# ScribeChat v2.0 - Konfigurasi Utama
+# Author: RifqyDev
 
-# Konfigurasi API Routing (Bisa dilewatkan via Cloudflare Proxy untuk menyembunyikan IP Server)
 api-settings:
   gemini-key: "INPUT_YOUR_GEMINI_API_KEY_HERE"
-  proxy-url: "https://api.rifqydev.my.id/v1/proxy" # Ubah jika menggunakan custom routing
-  enable-proxy: false
 
-# Fitur Asisten Otomatis
-auto-responder:
-  enabled: true
-  trigger-keywords:
-    - "min"
-    - "admin"
-    - "bantuan"
-    - "cara main"
-  default-response: "§b[ScribeAI] §7Halo! Jika butuh bantuan admin atau panduan bermain, kamu bisa ketik §e/chat §7dan pilih menu Asisten AI, atau kunjungi Discord kami."
+chat-format:
+  # Format chat: {name} = Nama pemain, {msg} = Pesan
+  global: "§8[§cG§8] §7{name} §8» §f{msg}"
+  local: "§8[§aL§8] §7{name} §8» §f{msg}"
+  staff: "§8[§eSTAFF§8] §c{name} §8» §e{msg}"
 
-# Filter Nada Bicara (Anti-Toxic Sentiment)
-sentiment-filter:
-  enabled: true
-  strict-mode: false
-  warning-message: "§c[ScribeChat] §7Pesan kamu diblokir karena terdeteksi mengandung sentimen negatif/kasar."
+features:
+  local-chat:
+    enabled: true
+    radius: 50 # Radius blok untuk Local Chat. Gunakan awalan "!" untuk Global Chat
+  anti-spam:
+    enabled: true
+    cooldown-seconds: 3
+    block-duplicate: true
+  anti-capslock: true
+  block-links: true # Memblokir IP server lain atau link tidak dikenal
+  smart-mentions: true # Suara "Pop" saat nama di-tag (@nama)
+  ai-grammar-fixer: true # AI merapikan singkatan/typo (contoh: "bng bg dmd" -> "Bang, bagi diamond")
+
+webhook:
+  discord-url: "" # Kosongkan jika tidak dipakai
