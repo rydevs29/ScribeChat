@@ -14,7 +14,6 @@ use pocketmine\utils\TextFormat;
 use pocketmine\world\sound\PopSound;
 use rifqydev\scribechat\utils\SimpleForm;
 use rifqydev\scribechat\task\ScribeProcessorTask;
-use pocketmine\Server;
 
 class Loader extends PluginBase implements Listener {
 
@@ -60,31 +59,28 @@ class Loader extends PluginBase implements Listener {
         $message = $event->getMessage();
         $config = $this->getConfig();
 
-        // 1. Anti-Spam & Cooldown
-        if (!$player->hasPermission("scribechat.bypass")) {
-            if ($config->getNested("features.anti-spam.enabled")) {
-                $time = time();
-                if (isset($this->cooldowns[$player->getName()]) && ($time - $this->cooldowns[$player->getName()]) < $config->getNested("features.anti-spam.cooldown-seconds")) {
-                    $player->sendMessage("§c[ScribeChat] §7Tunggu beberapa detik sebelum mengirim pesan lagi.");
-                    $event->cancel();
-                    return;
-                }
-                if ($config->getNested("features.anti-spam.block-duplicate") && isset($this->lastMessages[$player->getName()]) && $this->lastMessages[$player->getName()] === $message) {
-                    $player->sendMessage("§c[ScribeChat] §7Tolong jangan mengirim pesan yang sama persis (Spam).");
-                    $event->cancel();
-                    return;
-                }
-                $this->cooldowns[$player->getName()] = $time;
-                $this->lastMessages[$player->getName()] = $message;
+        if (!$player->hasPermission("scribechat.bypass") && $config->getNested("features.anti-spam.enabled")) {
+            $time = time();
+            if (isset($this->cooldowns[$player->getName()]) && ($time - $this->cooldowns[$player->getName()]) < $config->getNested("features.anti-spam.cooldown-seconds")) {
+                $player->sendMessage("§c[ScribeChat] §7Tunggu beberapa detik sebelum mengirim pesan lagi.");
+                $event->cancel();
+                return;
             }
+            if ($config->getNested("features.anti-spam.block-duplicate") && isset($this->lastMessages[$player->getName()]) && $this->lastMessages[$player->getName()] === $message) {
+                $player->sendMessage("§c[ScribeChat] §7Tolong jangan mengirim pesan yang sama persis (Spam).");
+                $event->cancel();
+                return;
+            }
+            $this->cooldowns[$player->getName()] = $time;
+            $this->lastMessages[$player->getName()] = $message;
         }
 
-        // 2. Anti-Capslock & Regex Filter (IP/Links)
         if ($config->getNested("features.anti-capslock")) {
             if (preg_match_all('/[A-Z]/', $message) > (strlen($message) / 2) && strlen($message) > 5) {
                 $message = ucfirst(strtolower($message));
             }
         }
+
         if ($config->getNested("features.block-links")) {
             if (preg_match('/(https?:\/\/[^\s]+)|(\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b)|([a-zA-Z0-9-]+\.[a-zA-Z]{2,})/', $message)) {
                 $player->sendMessage("§c[ScribeChat] §7Dilarang mengirimkan link atau IP server lain.");
@@ -93,32 +89,28 @@ class Loader extends PluginBase implements Listener {
             }
         }
 
-        // 3. Smart Mentions
         if ($config->getNested("features.smart-mentions")) {
             foreach ($this->getServer()->getOnlinePlayers() as $target) {
                 $name = $target->getName();
                 if (stripos($message, "@" . $name) !== false) {
                     $message = str_ireplace("@" . $name, "§b@" . $name . "§f", $message);
                     $target->broadcastSound(new PopSound(), [$target]);
-                    $target->sendTitle(" ", "§bKamu dimention oleh " . $player->getName(), 10, 40, 10);
                 }
             }
         }
 
-        // 4. Radius (Local) vs Global Chat
         $isGlobal = false;
         if ($config->getNested("features.local-chat.enabled")) {
             if (str_starts_with($message, "!")) {
                 $isGlobal = true;
-                $message = substr($message, 1); // Hapus tanda "!"
+                $message = substr($message, 1);
             }
         } else {
             $isGlobal = true;
         }
 
-        $event->cancel(); // Kita cancel event bawaan, karena kita akan handle broadcast sendiri (via AI atau manual)
+        $event->cancel();
 
-        // 5. Send to AI Processor (Sentiment + Grammar Fix)
         $apiKey = $config->getNested("api-settings.gemini-key", "");
         if ($apiKey !== "" && $apiKey !== "INPUT_YOUR_GEMINI_API_KEY_HERE" && $config->getNested("features.ai-grammar-fixer")) {
             $this->getServer()->getAsyncPool()->submitTask(new ScribeProcessorTask(
@@ -130,7 +122,6 @@ class Loader extends PluginBase implements Listener {
                 $config->getAll()
             ));
         } else {
-            // Fallback manual broadcast jika AI mati
             $this->broadcastChat($player, $message, $isGlobal, $config->getAll());
         }
     }
@@ -141,7 +132,6 @@ class Loader extends PluginBase implements Listener {
 
         if ($isGlobal) {
             $this->getServer()->broadcastMessage($format);
-            $this->sendToDiscordWebhook($format, $config);
         } else {
             $radius = $config["features"]["local-chat"]["radius"] ?? 50;
             foreach ($this->getServer()->getOnlinePlayers() as $p) {
@@ -152,14 +142,14 @@ class Loader extends PluginBase implements Listener {
         }
     }
 
-    private function sendToDiscordWebhook(string $message, array $config): void {
-        $url = $config["webhook"]["discord-url"] ?? "";
-        if ($url !== "") {
-            $cleanMessage = TextFormat::clean($message); // Hapus warna PMMP
-            // Logic cURL webhook discord bisa di-async-kan disini
-        }
+    public function openMainMenu(Player $player): void {
+        $form = new SimpleForm(function(Player $player, ?int $data) {
+            if ($data === null) return;
+            // Aksi tombol bisa disesuaikan nanti
+        });
+        $form->setTitle("§l§8SCRIBE CHAT");
+        $form->setContent("Sistem chat aktif dan dilindungi oleh ScribeAI.");
+        $form->addButton("Tutup Menu");
+        $player->sendForm($form);
     }
-
-    // (Biarkan fungsi openMainMenu dan openLanguageMenu dari kode sebelumnya ada di sini)
-    // ...
 }
