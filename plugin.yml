@@ -1,0 +1,15 @@
+name: ScribeChat
+version: 1.0.0
+main: rifqydev\scribechat\Loader
+api: ["5.0.0"]
+author: RifqyDev
+description: Smart AI Assistant, Auto-Translate, and Minimalist Chat Utility for PMMP 5.36.0.
+commands:
+  chat:
+    description: "Membuka menu utama ScribeChat"
+    permission: "scribechat.command.chat"
+    usage: "/chat"
+permissions:
+  scribechat.command.chat:
+    default: true
+    description: "Mengizinkan pemain membuka UI ScribeChat"
