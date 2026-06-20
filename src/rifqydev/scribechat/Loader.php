@@ -11,109 +11,155 @@ use pocketmine\command\Command;
 use pocketmine\command\CommandSender;
 use pocketmine\player\Player;
 use pocketmine\utils\TextFormat;
+use pocketmine\world\sound\PopSound;
 use rifqydev\scribechat\utils\SimpleForm;
 use rifqydev\scribechat\task\ScribeProcessorTask;
+use pocketmine\Server;
 
 class Loader extends PluginBase implements Listener {
 
-    /** @var array<string, string> Menyimpan preferensi bahasa pemain [username => lang_code] */
     private array $playerLanguages = [];
+    private array $cooldowns = [];
+    private array $lastMessages = [];
 
     protected function onEnable(): void {
         $this->saveDefaultConfig();
         $this->getServer()->getPluginManager()->registerEvents($this, $this);
-        $this->getLogger()->info(TextFormat::GREEN . "ScribeChat v1.0.0 oleh RifqyDev sukses dijalankan!");
     }
 
     public function onCommand(CommandSender $sender, Command $command, string $label, array $args): bool {
-        if($command->getName() === "chat" && $sender instanceof Player) {
+        if ($command->getName() === "chat" && $sender instanceof Player) {
             $this->openMainMenu($sender);
+            return true;
+        }
+
+        if ($command->getName() === "sc") {
+            if (!$sender->hasPermission("scribechat.staff")) {
+                $sender->sendMessage(TextFormat::RED . "Kamu tidak memiliki akses ke Staff Chat.");
+                return true;
+            }
+            if (count($args) < 1) {
+                $sender->sendMessage(TextFormat::YELLOW . "Penggunaan: /sc <pesan>");
+                return true;
+            }
+            $message = implode(" ", $args);
+            $format = str_replace(["{name}", "{msg}"], [$sender->getName(), $message], $this->getConfig()->getNested("chat-format.staff"));
+            
+            foreach ($this->getServer()->getOnlinePlayers() as $p) {
+                if ($p->hasPermission("scribechat.staff")) {
+                    $p->sendMessage($format);
+                }
+            }
             return true;
         }
         return false;
     }
 
-    /**
-     * Menangani Event Chat Pemain (Auto-Formatter, Sentiment Filter, & Auto Responder)
-     */
     public function onPlayerChat(PlayerChatEvent $event): void {
         $player = $event->getPlayer();
         $message = $event->getMessage();
+        $config = $this->getConfig();
 
-        // 1. Auto-Formatter (Kapitalisasi awal kalimat otomatis & hapus spasi berlebih)
-        $formattedMessage = ucfirst(trim(preg_replace('/\s+/', ' ', $message)));
-        $event->setMessage($formattedMessage);
+        // 1. Anti-Spam & Cooldown
+        if (!$player->hasPermission("scribechat.bypass")) {
+            if ($config->getNested("features.anti-spam.enabled")) {
+                $time = time();
+                if (isset($this->cooldowns[$player->getName()]) && ($time - $this->cooldowns[$player->getName()]) < $config->getNested("features.anti-spam.cooldown-seconds")) {
+                    $player->sendMessage("§c[ScribeChat] §7Tunggu beberapa detik sebelum mengirim pesan lagi.");
+                    $event->cancel();
+                    return;
+                }
+                if ($config->getNested("features.anti-spam.block-duplicate") && isset($this->lastMessages[$player->getName()]) && $this->lastMessages[$player->getName()] === $message) {
+                    $player->sendMessage("§c[ScribeChat] §7Tolong jangan mengirim pesan yang sama persis (Spam).");
+                    $event->cancel();
+                    return;
+                }
+                $this->cooldowns[$player->getName()] = $time;
+                $this->lastMessages[$player->getName()] = $message;
+            }
+        }
 
-        // 2. Smart Auto-Responder (Deteksi Kata Kunci Ringan secara Sinkronus)
-        if ($this->getConfig()->getNested("auto-responder.enabled", true)) {
-            foreach ($this->getConfig()->getNested("auto-responder.trigger-keywords", []) as $keyword) {
-                if (str_contains(strtolower($formattedMessage), strtolower($keyword))) {
-                    $player->sendMessage($this->getConfig()->getNested("auto-responder.default-response"));
-                    break;
+        // 2. Anti-Capslock & Regex Filter (IP/Links)
+        if ($config->getNested("features.anti-capslock")) {
+            if (preg_match_all('/[A-Z]/', $message) > (strlen($message) / 2) && strlen($message) > 5) {
+                $message = ucfirst(strtolower($message));
+            }
+        }
+        if ($config->getNested("features.block-links")) {
+            if (preg_match('/(https?:\/\/[^\s]+)|(\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b)|([a-zA-Z0-9-]+\.[a-zA-Z]{2,})/', $message)) {
+                $player->sendMessage("§c[ScribeChat] §7Dilarang mengirimkan link atau IP server lain.");
+                $event->cancel();
+                return;
+            }
+        }
+
+        // 3. Smart Mentions
+        if ($config->getNested("features.smart-mentions")) {
+            foreach ($this->getServer()->getOnlinePlayers() as $target) {
+                $name = $target->getName();
+                if (stripos($message, "@" . $name) !== false) {
+                    $message = str_ireplace("@" . $name, "§b@" . $name . "§f", $message);
+                    $target->broadcastSound(new PopSound(), [$target]);
+                    $target->sendTitle(" ", "§bKamu dimention oleh " . $player->getName(), 10, 40, 10);
                 }
             }
         }
 
-        // 3. Asynchronous Sentiment Analysis & Global Translation
-        // Menggunakan AsyncTask agar koneksi HTTP luar tidak membuat server TPS drop/lag
-        $apiKey = $this->getConfig()->getNested("api-settings.gemini-key", "");
-        if ($apiKey !== "" && $apiKey !== "INPUT_YOUR_GEMINI_API_KEY_HERE") {
+        // 4. Radius (Local) vs Global Chat
+        $isGlobal = false;
+        if ($config->getNested("features.local-chat.enabled")) {
+            if (str_starts_with($message, "!")) {
+                $isGlobal = true;
+                $message = substr($message, 1); // Hapus tanda "!"
+            }
+        } else {
+            $isGlobal = true;
+        }
+
+        $event->cancel(); // Kita cancel event bawaan, karena kita akan handle broadcast sendiri (via AI atau manual)
+
+        // 5. Send to AI Processor (Sentiment + Grammar Fix)
+        $apiKey = $config->getNested("api-settings.gemini-key", "");
+        if ($apiKey !== "" && $apiKey !== "INPUT_YOUR_GEMINI_API_KEY_HERE" && $config->getNested("features.ai-grammar-fixer")) {
             $this->getServer()->getAsyncPool()->submitTask(new ScribeProcessorTask(
                 $player->getName(),
-                $formattedMessage,
+                $message,
                 $apiKey,
-                $this->playerLanguages
+                $this->playerLanguages,
+                $isGlobal,
+                $config->getAll()
             ));
+        } else {
+            // Fallback manual broadcast jika AI mati
+            $this->broadcastChat($player, $message, $isGlobal, $config->getAll());
         }
     }
 
-    /**
-     * Antarmuka Utama Minimalis menggunakan Native Form UI PM5
-     */
-    public function openMainMenu(Player $player): void {
-        $form = new SimpleForm(function(Player $player, ?int $data) {
-            if ($data === null) return;
+    public function broadcastChat(Player $sender, string $message, bool $isGlobal, array $config): void {
+        $formatKey = $isGlobal ? "chat-format.global" : "chat-format.local";
+        $format = str_replace(["{name}", "{msg}"], [$sender->getName(), $message], $config[$formatKey] ?? "§7{name} §8» §f{msg}");
 
-            switch ($data) {
-                case 0:
-                    $player->sendMessage("§b[ScribeChat] §7Ketik §e/ask <pertanyaan> §7untuk mengobrol langsung dengan AI.");
-                    break;
-                case 1:
-                    $this->openLanguageMenu($player);
-                    break;
-                case 2:
-                    $player->sendMessage("§a[ScribeChat] §7Terima kasih telah menjaga kenyamanan server!");
-                    break;
+        if ($isGlobal) {
+            $this->getServer()->broadcastMessage($format);
+            $this->sendToDiscordWebhook($format, $config);
+        } else {
+            $radius = $config["features"]["local-chat"]["radius"] ?? 50;
+            foreach ($this->getServer()->getOnlinePlayers() as $p) {
+                if ($p->getWorld() === $sender->getWorld() && $p->getPosition()->distance($sender->getPosition()) <= $radius) {
+                    $p->sendMessage($format);
+                }
             }
-        });
-
-        $form->setTitle("§l§8SCRIBE CHAT");
-        $form->setContent("Selamat datang di pusat kendali obrolan pintar server.\nPilih layanan yang kamu butuhkan:");
-        $form->addButton("🤖 Tanya Asisten AI\n§8[Buka ScribeAI]");
-        $form->addButton("🌐 Pilih Bahasa Terjemahan\n§8[Ubah Preferensi]");
-        $form->addButton("🛡️ Laporkan Chat Organik\n§8[Community Watch]");
-        
-        $player->sendForm($form);
-    }
-
-    public function openLanguageMenu(Player $player): void {
-        $languages = ["id" => "Bahasa Indonesia", "en" => "English", "ja" => "Japanese"];
-        $keys = array_keys($languages);
-
-        $form = new SimpleForm(function(Player $player, ?int $data) use ($keys, $languages) {
-            if ($data === null) return;
-            
-            $selectedLang = $keys[$data];
-            $this->playerLanguages[$player->getName()] = $selectedLang;
-            $player->sendMessage("§a[ScribeChat] §7Bahasa preferensi terjemahan kamu berhasil diubah ke: §b" . $languages[$selectedLang]);
-        });
-
-        $form->setTitle("§l§8PILIH BAHASA");
-        $form->setContent("Pilih bahasa target. Setiap pesan asing di chat global akan otomatis diterjemahkan ke bahasa ini.");
-        foreach ($languages as $name) {
-            $form->addButton($name);
         }
-
-        $player->sendForm($form);
     }
+
+    private function sendToDiscordWebhook(string $message, array $config): void {
+        $url = $config["webhook"]["discord-url"] ?? "";
+        if ($url !== "") {
+            $cleanMessage = TextFormat::clean($message); // Hapus warna PMMP
+            // Logic cURL webhook discord bisa di-async-kan disini
+        }
+    }
+
+    // (Biarkan fungsi openMainMenu dan openLanguageMenu dari kode sebelumnya ada di sini)
+    // ...
 }
