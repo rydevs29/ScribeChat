@@ -1,15 +1,24 @@
 name: ScribeChat
-version: 1.0.0
+version: 2.0.0
 main: rifqydev\scribechat\Loader
 api: ["5.0.0"]
 author: RifqyDev
-description: Smart AI Assistant, Auto-Translate, and Minimalist Chat Utility for PMMP 5.36.0.
+description: Ultimate Minimalist Chat Engine, AI Assistant, and Moderation for PM5.
 commands:
   chat:
     description: "Membuka menu utama ScribeChat"
     permission: "scribechat.command.chat"
     usage: "/chat"
+  sc:
+    description: "Kirim pesan ke Staff Channel"
+    permission: "scribechat.staff"
+    usage: "/sc <pesan>"
 permissions:
   scribechat.command.chat:
     default: true
-    description: "Mengizinkan pemain membuka UI ScribeChat"
+  scribechat.staff:
+    default: op
+    description: "Akses membaca dan mengirim ke Staff Chat"
+  scribechat.bypass:
+    default: op
+    description: "Bypass cooldown dan chat filter"
