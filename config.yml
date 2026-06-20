@@ -1,0 +1,24 @@
+# ScribeChat - Konfigurasi Utama
+# Dibuat oleh RifqyDev untuk PocketMine-MP PM5
+
+# Konfigurasi API Routing (Bisa dilewatkan via Cloudflare Proxy untuk menyembunyikan IP Server)
+api-settings:
+  gemini-key: "INPUT_YOUR_GEMINI_API_KEY_HERE"
+  proxy-url: "https://api.rifqydev.my.id/v1/proxy" # Ubah jika menggunakan custom routing
+  enable-proxy: false
+
+# Fitur Asisten Otomatis
+auto-responder:
+  enabled: true
+  trigger-keywords:
+    - "min"
+    - "admin"
+    - "bantuan"
+    - "cara main"
+  default-response: "§b[ScribeAI] §7Halo! Jika butuh bantuan admin atau panduan bermain, kamu bisa ketik §e/chat §7dan pilih menu Asisten AI, atau kunjungi Discord kami."
+
+# Filter Nada Bicara (Anti-Toxic Sentiment)
+sentiment-filter:
+  enabled: true
+  strict-mode: false
+  warning-message: "§c[ScribeChat] §7Pesan kamu diblokir karena terdeteksi mengandung sentimen negatif/kasar."
