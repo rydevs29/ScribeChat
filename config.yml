@@ -1,11 +1,15 @@
-# ScribeChat v2.0 - Konfigurasi Utama
+# ScribeChat v2.5 - Minimalist Chat Engine & Dynamic AI
 # Author: RifqyDev
 
 api-settings:
   gemini-key: "INPUT_YOUR_GEMINI_API_KEY_HERE"
+  dynamic-models:
+    lite-v1: "gemini-2.5-flash-lite" # Untuk chat sangat ringan
+    lite-v2: "gemini-3.1-flash-lite" # Untuk chat ringan-sedang
+    flash-v1: "gemini-2.5-flash"     # Untuk chat menengah
+    flash-v2: "gemini-3.5-flash"     # Untuk chat kompleks / pertanyaan
 
 chat-format:
-  # Format chat: {name} = Nama pemain, {msg} = Pesan
   global: "§8[§cG§8] §7{name} §8» §f{msg}"
   local: "§8[§aL§8] §7{name} §8» §f{msg}"
   staff: "§8[§eSTAFF§8] §c{name} §8» §e{msg}"
@@ -13,15 +17,15 @@ chat-format:
 features:
   local-chat:
     enabled: true
-    radius: 50 # Radius blok untuk Local Chat. Gunakan awalan "!" untuk Global Chat
+    radius: 50
   anti-spam:
     enabled: true
     cooldown-seconds: 3
     block-duplicate: true
   anti-capslock: true
-  block-links: true # Memblokir IP server lain atau link tidak dikenal
-  smart-mentions: true # Suara "Pop" saat nama di-tag (@nama)
-  ai-grammar-fixer: true # AI merapikan singkatan/typo (contoh: "bng bg dmd" -> "Bang, bagi diamond")
+  block-links: true
+  smart-mentions: true
+  ai-grammar-fixer: true
 
 webhook:
-  discord-url: "" # Kosongkan jika tidak dipakai
+  discord-url: ""
